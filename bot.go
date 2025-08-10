@@ -72,6 +72,21 @@ func (b *Bot) Run(ctx context.Context) error {
 			b.cancelAllShutdownTimers()
 			return ctx.Err()
 		case update := <-updates:
+			// Check if bot was added to a new group/chat
+			if update.Message != nil && update.Message.NewChatMembers != nil {
+				for _, member := range update.Message.NewChatMembers {
+					if member.ID == b.api.Self.ID {
+						// Bot was added to this chat
+						chatTitle := update.Message.Chat.Title
+						if chatTitle == "" {
+							chatTitle = update.Message.Chat.FirstName + " " + update.Message.Chat.LastName
+						}
+						b.notifyAdmin(fmt.Sprintf("🤖 Bot wurde zu Gruppe hinzugefügt:\n\n📝 Name: %s\n🆔 ID: %d", chatTitle, update.Message.Chat.ID))
+						break
+					}
+				}
+			}
+
 			if update.Message == nil || !update.Message.IsCommand() {
 				continue
 			}
@@ -110,10 +125,36 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 		return
 	}
 
-	if server != nil && server.Status == "running" {
-		log.Printf("[BOOT] Server already running with IP: %s", server.PublicNet.IPv4.IP.String())
-		b.updateMessage(sentMsg, "✅ Server is already running! You can play! 🎮\n\nIP: `"+server.PublicNet.IPv4.IP.String()+"`")
-		return
+	if server != nil {
+		if server.Status == "running" {
+			log.Printf("[BOOT] Server already running with IP: %s", server.PublicNet.IPv4.IP.String())
+			b.updateMessage(sentMsg, "✅ Server is already running! You can play! 🎮\n\nIP: `"+server.PublicNet.IPv4.IP.String()+"`")
+			return
+		} else if server.Status == "off" {
+			log.Printf("[BOOT] Server exists but is stopped. Starting it...")
+			b.updateMessage(sentMsg, "🔄 Server existiert bereits. Starte Server...")
+
+			_, _, err := b.hetzner.client.Server.Poweron(context.Background(), server)
+			if err != nil {
+				log.Printf("[BOOT] Error starting server: %v", err)
+				b.updateMessage(sentMsg, "❌ Fehler beim Starten des Servers!")
+				return
+			}
+
+			// Wait for server to be running
+			for i := 0; i < 30; i++ {
+				time.Sleep(2 * time.Second)
+				updatedServer, _, err := b.hetzner.client.Server.GetByID(context.Background(), server.ID)
+				if err == nil && updatedServer.Status == hcloud.ServerStatusRunning {
+					log.Printf("[BOOT] Server is running!")
+					b.updateMessage(sentMsg, "✅ Server gestartet! Warte auf Minecraft...")
+					b.waitForMinecraft(ctx, sentMsg, updatedServer.PublicNet.IPv4.IP.String())
+					return
+				}
+			}
+			b.updateMessage(sentMsg, "❌ Timeout beim Starten des Servers")
+			return
+		}
 	}
 
 	log.Printf("[BOOT] Starting server boot process...")
@@ -609,23 +650,29 @@ func (b *Bot) performAutoShutdown() {
 
 	snapshot, err := b.hetzner.CreateSnapshot(server)
 	if err != nil {
+		log.Printf("[AUTOSHUTDOWN] Error creating snapshot: %v", err)
 		b.updateMessage(sentMsg, "❌ Fehler beim Erstellen des Snapshots!")
 		return
 	}
+	log.Printf("[AUTOSHUTDOWN] Snapshot created successfully: %s", snapshot.Description)
 
 	b.updateMessage(sentMsg, "🗑️ Lösche Server...")
+	log.Printf("[AUTOSHUTDOWN] Starting server deletion...")
 
 	err = b.hetzner.DeleteServer(server)
 	if err != nil {
+		log.Printf("[AUTOSHUTDOWN] Error deleting server: %v", err)
 		b.updateMessage(sentMsg, "❌ Fehler beim Löschen des Servers!")
 		return
 	}
+	log.Printf("[AUTOSHUTDOWN] Server deleted successfully")
 
 	err = b.hetzner.DeleteOldSnapshots(1)
 	if err != nil {
 		log.Printf("[AUTOSHUTDOWN] Warning: Error deleting old snapshots: %v", err)
 	}
 
+	log.Printf("[AUTOSHUTDOWN] Auto-shutdown completed successfully")
 	b.updateMessage(sentMsg, fmt.Sprintf("✅ *Auto-Shutdown erfolgreich!*\n\n📸 Snapshot: `%s`\n🤖 Server wurde automatisch heruntergefahren\n\nDer Server kann mit `/boot` wieder gestartet werden.", snapshot.Description))
 	b.notifyAdmin("🤖 Server wurde automatisch heruntergefahren (10 Minuten leer)")
 }

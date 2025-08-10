@@ -24,16 +24,20 @@ func NewHetznerManager(config *Config) *HetznerManager {
 }
 
 func (h *HetznerManager) FindLatestSnapshot() (*hcloud.Image, error) {
+	log.Printf("[HETZNER] Starting snapshot search...")
 	ctx := context.Background()
 
 	opts := hcloud.ImageListOpts{
 		Type: []hcloud.ImageType{hcloud.ImageTypeSnapshot},
 	}
 
+	log.Printf("[HETZNER] Fetching snapshots from API...")
 	images, err := h.client.Image.AllWithOpts(ctx, opts)
 	if err != nil {
+		log.Printf("[HETZNER] Error fetching snapshots: %v", err)
 		return nil, err
 	}
+	log.Printf("[HETZNER] Found %d total snapshots", len(images))
 
 	var mcSnapshots []*hcloud.Image
 	for _, img := range images {
