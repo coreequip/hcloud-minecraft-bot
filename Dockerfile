@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.21-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
 # Install ca-certificates and git for go mod
 RUN apk --no-cache add ca-certificates git
@@ -35,7 +35,7 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/hcloud-minecraft-bot /hcloud-minecraft-bot
 
 # Add metadata
-LABEL org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}"
+LABEL org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY"
 LABEL org.opencontainers.image.description="Telegram bot for managing Minecraft servers on Hetzner Cloud"
 LABEL org.opencontainers.image.licenses="MIT"
 
