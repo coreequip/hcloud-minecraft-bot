@@ -8,7 +8,7 @@ RUN apk --no-cache add ca-certificates git
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
-ARG GITHUB_REPOSITORY=user/repo
+ARG GITHUB_REPOSITORY
 
 WORKDIR /app
 
@@ -35,7 +35,7 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/hcloud-minecraft-bot /hcloud-minecraft-bot
 
 # Add metadata
-LABEL org.opencontainers.image.source="https://github.com/$GITHUB_REPOSITORY"
+LABEL org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}"
 LABEL org.opencontainers.image.description="Telegram bot for managing Minecraft servers on Hetzner Cloud"
 LABEL org.opencontainers.image.licenses="MIT"
 
