@@ -28,6 +28,9 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
 # Final stage - scratch image
 FROM scratch
 
+# Build arguments for labels
+ARG GITHUB_REPOSITORY
+
 # Copy ca-certificates from builder
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
