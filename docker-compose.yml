@@ -1,0 +1,20 @@
+services:
+  bot:
+    image: ghcr.io/coreequip/hcloud-minecraft-bot:latest
+    container_name: hcloud-minecraft-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Berlin
+    networks:
+      - bot-network
+    logging:
+      driver: "local"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  bot-network:
+    driver: bridge

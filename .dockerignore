@@ -1,0 +1,42 @@
+# Git files
+.git
+.gitignore
+
+# GitHub files
+.github/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Build artifacts
+hcloud-minecraft-bot
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test files
+*_test.go
+*.test
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+LICENSE
+
+# CI/CD files
+.dockerignore
+Dockerfile
+docker-compose*.yml
