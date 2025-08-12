@@ -3,70 +3,73 @@ package main
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 )
 
 type Config struct {
-	HetznerToken     string
-	TelegramToken    string
-	AllowedGroupID   int64
-	AdminTGID        int64
-	ServerLocation   string
-	PorkbunAPIKey    string
-	PorkbunSecretKey string
-	PorkbunDomain    string
+	HetznerToken     string `env:"HETZNER_TOKEN" required:"true"`
+	TelegramToken    string `env:"TELEGRAM_BOT_TOKEN" required:"true"`
+	AllowedGroupID   int64  `env:"ALLOWED_GROUP_ID" required:"true"`
+	AdminTGID        int64  `env:"ADMIN_TG_ID" required:"true"`
+	ServerLocation   string `env:"HETZNER_LOCATION" default:"nbg1"`
+	PorkbunAPIKey    string `env:"PORKBUN_API_KEY" required:"true"`
+	PorkbunSecretKey string `env:"PORKBUN_SECRET_KEY" required:"true"`
+	PorkbunDomain    string `env:"PORKBUN_DOMAIN" required:"true"`
 }
 
 func loadConfig() (*Config, error) {
 	cfg := &Config{}
 
-	cfg.HetznerToken = os.Getenv("HETZNER_TOKEN")
-	if cfg.HetznerToken == "" {
-		return nil, fmt.Errorf("HETZNER_TOKEN environment variable is required")
-	}
+	v := reflect.ValueOf(cfg).Elem()
+	t := v.Type()
 
-	cfg.TelegramToken = os.Getenv("TELEGRAM_BOT_TOKEN")
-	if cfg.TelegramToken == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN environment variable is required")
-	}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		fieldValue := v.Field(i)
 
-	groupID := os.Getenv("ALLOWED_GROUP_ID")
-	if groupID == "" {
-		return nil, fmt.Errorf("ALLOWED_GROUP_ID environment variable is required")
-	}
-	var err error
-	cfg.AllowedGroupID, err = strconv.ParseInt(groupID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ALLOWED_GROUP_ID: %v", err)
-	}
+		envName := field.Tag.Get("env")
+		if envName == "" {
+			continue
+		}
 
-	adminID := os.Getenv("ADMIN_TG_ID")
-	if adminID == "" {
-		return nil, fmt.Errorf("ADMIN_TG_ID environment variable is required")
-	}
-	cfg.AdminTGID, err = strconv.ParseInt(adminID, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ADMIN_TG_ID: %v", err)
-	}
+		envValue := os.Getenv(envName)
+		required := field.Tag.Get("required") == "true"
+		defaultValue := field.Tag.Get("default")
 
-	cfg.ServerLocation = os.Getenv("HETZNER_LOCATION")
-	if cfg.ServerLocation == "" {
-		cfg.ServerLocation = "nbg1"
-	}
+		// Handle empty values
+		if envValue == "" {
+			if required {
+				return nil, fmt.Errorf("%s environment variable is required", envName)
+			}
+			if defaultValue != "" {
+				envValue = defaultValue
+			}
+		}
 
-	cfg.PorkbunAPIKey = os.Getenv("PORKBUN_API_KEY")
-	if cfg.PorkbunAPIKey == "" {
-		return nil, fmt.Errorf("PORKBUN_API_KEY environment variable is required")
-	}
-
-	cfg.PorkbunSecretKey = os.Getenv("PORKBUN_SECRET_KEY")
-	if cfg.PorkbunSecretKey == "" {
-		return nil, fmt.Errorf("PORKBUN_SECRET_KEY environment variable is required")
-	}
-
-	cfg.PorkbunDomain = os.Getenv("PORKBUN_DOMAIN")
-	if cfg.PorkbunDomain == "" {
-		return nil, fmt.Errorf("PORKBUN_DOMAIN environment variable is required")
+		// Set the value based on field type
+		switch fieldValue.Kind() {
+		case reflect.String:
+			fieldValue.SetString(envValue)
+		case reflect.Int64:
+			if envValue != "" {
+				intValue, err := strconv.ParseInt(envValue, 10, 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid %s: %v", envName, err)
+				}
+				fieldValue.SetInt(intValue)
+			}
+		case reflect.Bool:
+			if envValue != "" {
+				boolValue, err := strconv.ParseBool(envValue)
+				if err != nil {
+					return nil, fmt.Errorf("invalid %s: %v (expected true/false, 1/0, etc.)", envName, err)
+				}
+				fieldValue.SetBool(boolValue)
+			}
+		default:
+			return nil, fmt.Errorf("unsupported field type for %s", field.Name)
+		}
 	}
 
 	return cfg, nil

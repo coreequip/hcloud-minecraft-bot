@@ -24,19 +24,11 @@ type Bot struct {
 
 	// Protected by mutex
 	mu                  sync.RWMutex
-	currentServer       *ServerInfo
 	messageCache        map[int]string // MessageID -> Last content
 	autoShutdown        bool
 	shutdownTimer       *time.Timer
 	warningTimers       []*time.Timer     // Track all warning timers
 	autoShutdownMessage *tgbotapi.Message // Track auto-shutdown warning message
-}
-
-type ServerInfo struct {
-	ID        int64
-	Name      string
-	IP        string
-	IsRunning bool
 }
 
 func NewBot(config *Config) (*Bot, error) {
@@ -109,6 +101,7 @@ func (b *Bot) Run(ctx context.Context) error {
 }
 
 func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) {
+	startTime := time.Now()
 	log.Printf("[BOOT] Command received from @%s (ID: %d)", message.From.UserName, message.From.ID)
 
 	msg := tgbotapi.NewMessage(message.Chat.ID, "🔍 Checking server status...")
@@ -129,7 +122,8 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 	if server != nil {
 		if server.Status == "running" {
 			log.Printf("[BOOT] Server already running with IP: %s", server.PublicNet.IPv4.IP.String())
-			b.updateMessage(sentMsg, "✅ Server is already running! You can play! 🎮\n\nIP: `"+server.PublicNet.IPv4.IP.String()+"`")
+			elapsed := time.Since(startTime)
+			b.updateMessage(sentMsg, fmt.Sprintf("✅ Server is already running! You can play! 🎮\n\nIP: `%s`\n\n⏱️ Zeit: %dm%02ds", server.PublicNet.IPv4.IP.String(), int(elapsed.Minutes()), int(elapsed.Seconds())%60))
 			return
 		} else if server.Status == "off" {
 			log.Printf("[BOOT] Server exists but is stopped. Starting it...")
@@ -149,7 +143,7 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 				if err == nil && updatedServer.Status == hcloud.ServerStatusRunning {
 					log.Printf("[BOOT] Server is running!")
 					b.updateMessage(sentMsg, "✅ Server gestartet! Warte auf Minecraft...")
-					b.waitForMinecraft(ctx, sentMsg, updatedServer.PublicNet.IPv4.IP.String())
+					b.waitForMinecraft(ctx, sentMsg, updatedServer.PublicNet.IPv4.IP.String(), startTime)
 					return
 				}
 			}
@@ -211,6 +205,7 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 
 	initialProgress := -1
 
+	//nolint:gosimple // We need select to handle ticker events and check server status
 	for {
 		select {
 		case <-ticker.C:
@@ -250,7 +245,7 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 
 					// Wait a moment before starting Minecraft check
 					time.Sleep(2 * time.Second)
-					b.waitForMinecraft(ctx, sentMsg, updatedServer.PublicNet.IPv4.IP.String())
+					b.waitForMinecraft(ctx, sentMsg, updatedServer.PublicNet.IPv4.IP.String(), startTime)
 					return
 				}
 			}
@@ -260,7 +255,7 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 	}
 }
 
-func (b *Bot) waitForMinecraft(ctx context.Context, message tgbotapi.Message, serverIP string) {
+func (b *Bot) waitForMinecraft(ctx context.Context, message tgbotapi.Message, serverIP string, bootStartTime time.Time) {
 	log.Printf("[BOOT] Waiting for Minecraft server on %s:25565...", serverIP)
 
 	b.updateMessage(message, "⏳ *Minecraft Server startet...*\n\n_Der Server wird initialisiert. Dies kann einige Minuten dauern._")
@@ -281,7 +276,8 @@ func (b *Bot) waitForMinecraft(ctx context.Context, message tgbotapi.Message, se
 
 			if err == nil && status != nil {
 				log.Printf("[BOOT] Minecraft server is reachable! Version: %s", status.VersionName)
-				b.updateMessage(message, fmt.Sprintf("✅ *Server ist bereit!* 🎮\n\n*IP:* `%s`\n*Port:* 25565\n*Version:* %s\n\nViel Spaß beim Spielen! 🎯", serverIP, status.VersionName))
+				totalElapsed := time.Since(bootStartTime)
+				b.updateMessage(message, fmt.Sprintf("✅ *Server ist bereit!* 🎮\n\n*IP:* `%s`\n*Version:* %s\n\n⏱️ *Gesamtzeit:* %dm%02ds\n\nViel Spaß beim Spielen! 🎯", serverIP, status.VersionName, int(totalElapsed.Minutes()), int(totalElapsed.Seconds())%60))
 
 				// Start player monitoring if auto-shutdown is enabled
 				b.mu.RLock()
