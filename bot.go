@@ -159,7 +159,7 @@ func (b *Bot) handleBootCommand(ctx context.Context, message *tgbotapi.Message) 
 	}
 
 	log.Printf("[BOOT] Starting server boot process...")
-	b.notifyAdmin(fmt.Sprintf("🚀 Server being started by @%s", message.From.UserName))
+	b.notifyAdmin(fmt.Sprintf("🚀 Server being started by @%s (%s)", message.From.UserName, message.From.FirstName))
 
 	b.updateMessage(sentMsg, "🔍 Suche neuesten Snapshot...")
 
@@ -408,6 +408,15 @@ func (b *Bot) updateMessage(message tgbotapi.Message, text string) {
 	editMsg := tgbotapi.NewEditMessageText(message.Chat.ID, message.MessageID, text)
 	editMsg.ParseMode = "Markdown"
 
+	// Add timeout logging
+	log.Printf("[DEBUG] Attempting to update message ID %d in chat %d with text: %s", message.MessageID, message.Chat.ID, text)
+
+	// Skip update if message ID is 0 (dummy message)
+	if message.MessageID == 0 {
+		log.Printf("[DEBUG] Skipping update for dummy message (ID=0)")
+		return
+	}
+
 	_, err := b.api.Send(editMsg)
 	if err != nil {
 		log.Printf("Error updating message: %v", err)
@@ -430,7 +439,6 @@ func (b *Bot) notifyAdmin(text string) {
 
 func (b *Bot) cancelAllShutdownTimers() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 
 	// Cancel main shutdown timer
 	if b.shutdownTimer != nil {
@@ -446,10 +454,18 @@ func (b *Bot) cancelAllShutdownTimers() {
 	}
 	b.warningTimers = make([]*time.Timer, 0)
 
-	// Clear message reference and update it to show cancellation (only if message exists)
+	// Store message reference to update after releasing the lock
+	var msgToUpdate *tgbotapi.Message
 	if b.autoShutdownMessage != nil {
-		b.updateMessage(*b.autoShutdownMessage, "✅ *Auto-Shutdown abgebrochen*\n\nSpieler sind wieder online oder Auto-Shutdown wurde deaktiviert.")
+		msgToUpdate = b.autoShutdownMessage
 		b.autoShutdownMessage = nil
+	}
+
+	b.mu.Unlock()
+
+	// Update message after releasing the lock to avoid deadlock
+	if msgToUpdate != nil {
+		b.updateMessage(*msgToUpdate, "✅ *Auto-Shutdown abgebrochen*\n\nSpieler sind wieder online oder Auto-Shutdown wurde deaktiviert.")
 	}
 }
 
@@ -627,7 +643,16 @@ func (b *Bot) performAutoShutdown() {
 	} else {
 		msg := tgbotapi.NewMessage(b.config.AllowedGroupID, "🤖 *Automatischer Shutdown*\n\nDer Server war 10 Minuten lang leer und wird jetzt heruntergefahren.")
 		msg.ParseMode = "Markdown"
-		sentMsg, _ = b.api.Send(msg)
+		var err error
+		sentMsg, err = b.api.Send(msg)
+		if err != nil {
+			log.Printf("[AUTOSHUTDOWN] Error sending initial message: %v", err)
+			// Create a dummy message to continue
+			sentMsg = tgbotapi.Message{
+				MessageID: 0,
+				Chat:      &tgbotapi.Chat{ID: b.config.AllowedGroupID},
+			}
+		}
 	}
 
 	// Find server
@@ -656,6 +681,10 @@ func (b *Bot) performAutoShutdown() {
 		return
 	}
 	log.Printf("[AUTOSHUTDOWN] Snapshot created successfully: %s", snapshot.Description)
+
+	// Add debug logging to identify where it hangs
+	log.Printf("[AUTOSHUTDOWN] About to call updateMessage for delete server message")
+	log.Printf("[AUTOSHUTDOWN] sentMsg details: ChatID=%d, MessageID=%d", sentMsg.Chat.ID, sentMsg.MessageID)
 
 	b.updateMessage(sentMsg, "🗑️ Lösche Server...")
 	log.Printf("[AUTOSHUTDOWN] Starting server deletion...")
