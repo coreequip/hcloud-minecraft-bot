@@ -408,9 +408,6 @@ func (b *Bot) updateMessage(message tgbotapi.Message, text string) {
 	editMsg := tgbotapi.NewEditMessageText(message.Chat.ID, message.MessageID, text)
 	editMsg.ParseMode = "Markdown"
 
-	// Add timeout logging
-	log.Printf("[DEBUG] Attempting to update message ID %d in chat %d with text: %s", message.MessageID, message.Chat.ID, text)
-
 	// Skip update if message ID is 0 (dummy message)
 	if message.MessageID == 0 {
 		log.Printf("[DEBUG] Skipping update for dummy message (ID=0)")
@@ -438,6 +435,10 @@ func (b *Bot) notifyAdmin(text string) {
 }
 
 func (b *Bot) cancelAllShutdownTimers() {
+	b.cancelAllShutdownTimersWithMessage(true)
+}
+
+func (b *Bot) cancelAllShutdownTimersWithMessage(sendMessage bool) {
 	b.mu.Lock()
 
 	// Cancel main shutdown timer
@@ -464,7 +465,7 @@ func (b *Bot) cancelAllShutdownTimers() {
 	b.mu.Unlock()
 
 	// Update message after releasing the lock to avoid deadlock
-	if msgToUpdate != nil {
+	if sendMessage && msgToUpdate != nil {
 		b.updateMessage(*msgToUpdate, "✅ *Auto-Shutdown abgebrochen*\n\nSpieler sind wieder online oder Auto-Shutdown wurde deaktiviert.")
 	}
 }
@@ -483,7 +484,7 @@ func (b *Bot) handleAutoShutdownCommand(message *tgbotapi.Message) {
 
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("🤖 Auto-Shutdown ist derzeit *%s*\n\nVerwende:\n`/autoshutdown on` - Aktivieren\n`/autoshutdown off` - Deaktivieren", status))
 		msg.ParseMode = "Markdown"
-		b.api.Send(msg)
+		_, _ = b.api.Send(msg)
 		return
 	}
 
@@ -495,7 +496,7 @@ func (b *Bot) handleAutoShutdownCommand(message *tgbotapi.Message) {
 
 		msg := tgbotapi.NewMessage(message.Chat.ID, "✅ Auto-Shutdown wurde *aktiviert*\n\nDer Server wird automatisch heruntergefahren, wenn 10 Minuten lang keine Spieler online sind.")
 		msg.ParseMode = "Markdown"
-		b.api.Send(msg)
+		_, _ = b.api.Send(msg)
 		log.Printf("[AUTOSHUTDOWN] Enabled by @%s", message.From.UserName)
 
 	case "off":
@@ -506,12 +507,12 @@ func (b *Bot) handleAutoShutdownCommand(message *tgbotapi.Message) {
 		b.cancelAllShutdownTimers()
 		msg := tgbotapi.NewMessage(message.Chat.ID, "❌ Auto-Shutdown wurde *deaktiviert*")
 		msg.ParseMode = "Markdown"
-		b.api.Send(msg)
+		_, _ = b.api.Send(msg)
 		log.Printf("[AUTOSHUTDOWN] Disabled by @%s", message.From.UserName)
 
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "❓ Unbekannter Parameter. Verwende `on` oder `off`")
-		b.api.Send(msg)
+		_, _ = b.api.Send(msg)
 	}
 }
 
@@ -546,7 +547,7 @@ func (b *Bot) startPlayerMonitoring(ctx context.Context, serverIP string) {
 			server, err := b.hetzner.FindServerByName(ServerName)
 			if err != nil || server == nil || server.Status != "running" {
 				log.Printf("[MONITOR] Server no longer exists or not running, stopping monitoring")
-				b.cancelAllShutdownTimers()
+				b.cancelAllShutdownTimersWithMessage(false)
 				return
 			}
 
